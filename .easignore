@@ -1,0 +1,30 @@
+# Local native build directories (EAS generates these from scratch on the cloud)
+/android
+/ios
+
+# Dependencies
+/node_modules
+/.pnpm-store
+
+# Environment secrets and local configurations
+.env*.local
+.env
+/credentials*.json
+
+# IDEs and local system files
+.idea/
+.vscode/
+*.suo
+*.ntvs*
+*.njsproj
+*.sln
+*.sw?
+.DS_Store
+
+# Build caches and logs
+.expo/
+/dist
+npm-debug.log*
+yarn-debug.log*
+yarn-error.log*
+pnpm-debug.log*

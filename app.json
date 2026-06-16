@@ -18,7 +18,13 @@
       },
       "predictiveBackGestureEnabled": false,
       "versionCode": 1,
-      "package": "com.miaoda.appcdi74yoy2sqp"
+      "package": "com.miaoda.appcdi74yoy2sqp",
+      "permissions": [
+        "android.permission.RECORD_AUDIO",
+        "android.permission.MODIFY_AUDIO_SETTINGS",
+        "android.permission.FOREGROUND_SERVICE",
+        "android.permission.FOREGROUND_SERVICE_MEDIA_PLAYBACK"
+      ]
     },
     "web": {
       "bundler": "metro",
@@ -30,20 +36,37 @@
       "expo-sqlite",
       "expo-font",
       "expo-system-ui",
-      [
-        "expo-audio",
-        {
-          "microphonePermission": "Allow Guitar Tuner Pro to use the microphone for real-time pitch detection and tuning."
+      "@siteed/audio-studio",
+      {
+        "enablePhoneStateHandling": true,
+        "enableNotifications": true,
+        "enableBackgroundAudio": true,
+        "enableDeviceDetection": true,
+        "iosBackgroundModes": {
+          "useVoIP": false,
+          "useAudio": false,
+          "useProcessing": false,
+          "useLocation": false,
+          "useExternalAccessory": false
+        },
+        "iosConfig": {
+          "allowBackgroundAudioControls": false,
+          "backgroundProcessingTitle": "Guitar Tuner Pro",
+          "microphoneUsageDescription": "Allow Guitar Tuner Pro to access your microphone.",
+          "notificationUsageDescription": "Allow Guitar Tuner Pro to send you notifications."
         }
-      ],
+      },
       "@react-native-async-storage/expo-with-async-storage",
       "@react-native-async-storage/expo-with-async-storage"
     ],
-    "router": {
-      "root": "src"
-    },
     "experiments": {
       "typedRoutes": true
+    },
+    "extra": {
+      "router": {},
+      "eas": {
+        "projectId": "2c8600bc-4bc4-4ae1-8177-09424ef197b9"
+      }
     }
   }
 }
