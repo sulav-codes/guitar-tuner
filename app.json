@@ -1,0 +1,49 @@
+{
+  "expo": {
+    "name": "Guitar Tuner Pro",
+    "slug": "guitar-tuner-pro",
+    "version": "1.0.1",
+    "orientation": "portrait",
+    "icon": "./assets/icon.png",
+    "userInterfaceStyle": "dark",
+    "ios": {
+      "supportsTablet": true,
+      "buildNumber": "1",
+      "bundleIdentifier": "com.miaoda.appcdi74yoy2sqp"
+    },
+    "android": {
+      "adaptiveIcon": {
+        "foregroundImage": "./assets/adaptive-icon.png",
+        "backgroundColor": "#121212"
+      },
+      "predictiveBackGestureEnabled": false,
+      "versionCode": 1,
+      "package": "com.miaoda.appcdi74yoy2sqp"
+    },
+    "web": {
+      "bundler": "metro",
+      "favicon": "./assets/favicon.png"
+    },
+    "plugins": [
+      "expo-router",
+      "expo-asset",
+      "expo-sqlite",
+      "expo-font",
+      "expo-system-ui",
+      [
+        "expo-audio",
+        {
+          "microphonePermission": "Allow Guitar Tuner Pro to use the microphone for real-time pitch detection and tuning."
+        }
+      ],
+      "@react-native-async-storage/expo-with-async-storage",
+      "@react-native-async-storage/expo-with-async-storage"
+    ],
+    "router": {
+      "root": "src"
+    },
+    "experiments": {
+      "typedRoutes": true
+    }
+  }
+}
