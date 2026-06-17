@@ -40,26 +40,26 @@
     "@rn-primitives/tooltip": "^1.4.0",
     "@siteed/audio-studio": "^3.2.0",
     "@supabase/supabase-js": "2.103.1",
+    "base64-js": "^1.5.1",
     "class-variance-authority": "^0.7.1",
     "clsx": "^2.1.1",
     "expo": "~55.0.26",
     "expo-asset": "~55.0.8",
-    "expo-audio": "catalog:",
     "expo-build-properties": "~55.0.14",
     "expo-constants": "~55.0.7",
+    "expo-dev-client": "~55.0.35",
     "expo-font": "~55.0.4",
     "expo-haptics": "~55.0.14",
     "expo-linking": "~55.0.7",
-    "expo-router": "catalog:",
+    "expo-router": "~55.0.16",
     "expo-sqlite": "~55.0.10",
     "expo-status-bar": "~55.0.4",
     "expo-system-ui": "~55.0.9",
     "lucide-react-native": "^1.11.0",
-    "miaoda-expo-devkit": "0.1.1-beta.87",
     "nativewind": "^4.2.3",
     "react": "19.2.0",
     "react-dom": "19.2.0",
-    "react-native": "catalog:",
+    "react-native": "0.83.6",
     "react-native-css-interop": "^0.2.3",
     "react-native-gesture-handler": "~2.30.0",
     "react-native-reanimated": "4.2.1",
@@ -75,7 +75,7 @@
     "@biomejs/biome": "2.4.5",
     "@expo/metro-runtime": "55.0.11",
     "@types/react": "~19.2.14",
-    "babel-preset-expo": "catalog:",
+    "babel-preset-expo": "~55.0.22",
     "eslint-plugin-expo": "^1.0.0",
     "oxlint": "^1.60.0",
     "prettier-plugin-tailwindcss": "^0.5.11",
@@ -92,8 +92,7 @@
       }
     },
     "overrides": {
-      "expo-audio": "55.0.6",
-      "expo-video": "55.0.5",
+      "@expo/log-box": "55.0.12",
       "metro-core": "0.83.7"
     },
     "onlyBuiltDependencies": [
@@ -101,5 +100,14 @@
       "better-sqlite3",
       "esbuild"
     ]
+  },
+  "expo": {
+    "doctor": {
+      "reactNativeDirectoryCheck": {
+        "exclude": [
+          "@siteed/audio-studio"
+        ]
+      }
+    }
   }
 }

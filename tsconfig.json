@@ -1,5 +1,4 @@
 {
-  "extends": "miaoda-expo-devkit/tsconfig-base",
   "compilerOptions": {
     "paths": {
       "@/*": ["./src/*"]

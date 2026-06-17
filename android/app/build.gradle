@@ -87,9 +87,9 @@ android {
     buildToolsVersion rootProject.ext.buildToolsVersion
     compileSdk rootProject.ext.compileSdkVersion
 
-    namespace 'com.miaoda.appcdi74yoy2sqp'
+    namespace 'com.guitar.tuner.pro'
     defaultConfig {
-        applicationId 'com.miaoda.appcdi74yoy2sqp'
+        applicationId 'com.guitar.tuner.pro'
         minSdkVersion rootProject.ext.minSdkVersion
         targetSdkVersion rootProject.ext.targetSdkVersion
         versionCode 1

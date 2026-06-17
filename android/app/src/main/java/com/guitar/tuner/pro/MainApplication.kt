@@ -1,4 +1,4 @@
-package com.miaoda.appcdi74yoy2sqp
+package com.guitar.tuner.pro
 
 import android.app.Application
 import android.content.res.Configuration

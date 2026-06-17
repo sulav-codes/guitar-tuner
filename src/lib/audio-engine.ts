@@ -1,24 +1,20 @@
 /**
  * Audio engine: captures microphone input and runs pitch detection
  * Platform-aware:
- *   Native (iOS/Android) + Web: @siteed/audio-studio → real PCM → YIN/autocorrelation
- *   Web fallback: Web Audio API directly
- *
- * IMPORTANT: Because @siteed/audio-studio's primary API is a React hook
- * (useAudioRecorder), the native engine cannot be a self-contained class.
- * Instead it exposes:
- *   - audioEngine  → singleton used by your screens (same interface as before)
- *   - useAudioEngineSetup → hook that MUST be mounted once at app root to
- *     wire the recorder into the engine singleton
+ *   Native (iOS/Android): @siteed/audio-studio → real PCM → YIN/autocorrelation
+ *   Web: Web Audio API → YIN/autocorrelation
  */
 
 import { useEffect, useRef } from "react";
 import { Platform } from "react-native";
-import {
-  useAudioRecorder,
-  requestPermissionsAsync,
+import { useAudioRecorder } from "@siteed/audio-studio";
+import type {
+  AudioDataEvent,
+  RecordingConfig,
+  // FIX #4: Import StartRecordingResult so the bridge return type is correct
+  StartRecordingResult,
 } from "@siteed/audio-studio";
-import type { AudioStreamEvent } from "@siteed/audio-studio";
+import { toByteArray } from "base64-js";
 import {
   detectPitchYIN,
   detectPitchAutocorrelation,
@@ -65,26 +61,22 @@ function getSensitivityGain(
 }
 
 /**
- * Decode a base64 PCM chunk from AudioStreamEvent into Float32Array.
- * @siteed/audio-studio always delivers base64 encoded raw PCM bytes.
- * With pcm_32bit encoding each 4 bytes = one Float32 sample.
+ * Decode base64 PCM from AudioDataEvent into Float32Array.
+ *
+ * atob() is undefined in React Native / Hermes — use base64-js instead.
+ * pcm_32bit = 4 bytes per sample = IEEE 754 float32, range [-1.0, 1.0].
  */
 function decodeBase64PCM(base64: string): Float32Array {
-  const binary = atob(base64);
-  const bytes = new Uint8Array(binary.length);
-  for (let i = 0; i < binary.length; i++) {
-    bytes[i] = binary.charCodeAt(i);
-  }
-  return new Float32Array(bytes.buffer);
+  const bytes = toByteArray(base64);
+  return new Float32Array(
+    bytes.buffer,
+    bytes.byteOffset,
+    bytes.byteLength / Float32Array.BYTES_PER_ELEMENT,
+  );
 }
 
 // ─── Ring buffer ──────────────────────────────────────────────────────────────
 
-/**
- * Accumulates small PCM chunks into a window large enough for YIN.
- * expo-audio-studio delivers ~50-100ms chunks; we need ~46ms at 44100Hz
- * for BUFFER_SIZE=2048, but we collect 4x for safety.
- */
 class RingBuffer {
   private buffer: Float32Array;
   private writePos = 0;
@@ -108,7 +100,10 @@ class RingBuffer {
     this.filled = Math.min(this.filled + samples.length, this.capacity);
   }
 
-  /** Returns the most recent `size` samples in chronological order, or null if not enough data. */
+  /**
+   * Read the most recent `size` samples in chronological order.
+   * Returns null if not enough data has accumulated yet.
+   */
   read(size: number): Float32Array | null {
     if (this.filled < size) return null;
     const out = new Float32Array(size);
@@ -120,15 +115,15 @@ class RingBuffer {
   }
 }
 
-// ─── Internal bridge ──────────────────────────────────────────────────────────
+// ─── Recorder bridge ──────────────────────────────────────────────────────────
 
-/**
- * Shared mutable state between the AudioEngine singleton and the
- * useAudioEngineSetup hook. The hook writes startRecording/stopRecording
- * into this bridge; the singleton reads them when .start()/.stop() is called.
- */
 interface RecorderBridge {
-  startRecording: ((opts: object) => Promise<void>) | null;
+  // FIX #4: startRecording must return Promise<StartRecordingResult> to match
+  // the real useAudioRecorder hook signature from @siteed/audio-studio.
+  // The bridge wraps it, so callers inside the engine can ignore the result.
+  startRecording:
+    | ((config: RecordingConfig) => Promise<StartRecordingResult>)
+    | null;
   stopRecording: (() => Promise<unknown>) | null;
 }
 
@@ -137,13 +132,19 @@ const recorderBridge: RecorderBridge = {
   stopRecording: null,
 };
 
-// ─── Audio engine singleton ───────────────────────────────────────────────────
+// ─── Core engine (singleton) ──────────────────────────────────────────────────
 
 class AudioEngineCore {
   private smoothing = new FrequencySmoothing("medium");
   private callback: PitchCallback | null = null;
   private isRunning = false;
   private ring = new RingBuffer(BUFFER_SIZE * 8);
+
+  // FIX #1: Keep sampleRate typed as the allowed literal union so it is
+  // assignable to RecordingConfig.sampleRate (typed as SampleRate, not number).
+  // 16000 | 44100 | 48000 are the values documented as valid SampleRate values.
+  private sampleRate: 16000 | 44100 | 48000 = DEFAULT_SAMPLE_RATE;
+
   private config: AudioEngineConfig = {
     algorithm: "yin",
     sensitivity: "medium",
@@ -151,13 +152,15 @@ class AudioEngineCore {
     proAccuracy: false,
   };
 
-  // Web Audio API members (web platform only)
+  // Web-only members
   private audioContext: AudioContext | null = null;
   private analyser: AnalyserNode | null = null;
   private microphone: MediaStreamAudioSourceNode | null = null;
   private stream: MediaStream | null = null;
   private animationId: number | null = null;
   private webBuffer: Float32Array = new Float32Array(BUFFER_SIZE);
+
+  // ── Public API ──────────────────────────────────────────────────────────────
 
   isSupported(): boolean {
     if (Platform.OS === "web") {
@@ -167,7 +170,7 @@ class AudioEngineCore {
           "undefined"
       );
     }
-    return true; // audio-studio supports iOS + Android
+    return Platform.OS === "ios" || Platform.OS === "android";
   }
 
   updateConfig(config: Partial<AudioEngineConfig>): void {
@@ -179,43 +182,88 @@ class AudioEngineCore {
     onPitch: PitchCallback,
   ): Promise<{ success: boolean; error?: string }> {
     this.callback = onPitch;
-
-    if (Platform.OS === "web") {
-      return this.startWeb();
-    }
-    return this.startNative();
+    return Platform.OS === "web" ? this.startWeb() : this.startNative();
   }
 
-  // ── Native path via recorderBridge ─────────────────────────────────────────
+  stop(): void {
+    this.isRunning = false;
+    this.smoothing.reset();
+    this.ring.reset();
+
+    if (Platform.OS !== "web") {
+      recorderBridge.stopRecording?.().catch(() => {});
+    } else {
+      this.stopWeb();
+    }
+
+    this.callback?.({ frequency: null, clarity: 0, isActive: false });
+  }
+
+  playReferenceTone(frequency: number, durationMs = 800): void {
+    if (Platform.OS !== "web") {
+      console.warn("[AudioEngine] playReferenceTone is web-only for now.");
+      return;
+    }
+
+    const AudioContextClass =
+      ((globalThis as Record<string, unknown>)
+        .AudioContext as typeof AudioContext) ||
+      ((globalThis as Record<string, unknown>)
+        .webkitAudioContext as typeof AudioContext);
+
+    const ctx = new AudioContextClass();
+    const osc = ctx.createOscillator();
+    const gain = ctx.createGain();
+
+    osc.type = "sine";
+    osc.frequency.setValueAtTime(frequency, ctx.currentTime);
+    gain.gain.setValueAtTime(0.4, ctx.currentTime);
+    gain.gain.exponentialRampToValueAtTime(
+      0.001,
+      ctx.currentTime + durationMs / 1000,
+    );
+
+    osc.connect(gain);
+    gain.connect(ctx.destination);
+    osc.start(ctx.currentTime);
+    osc.stop(ctx.currentTime + durationMs / 1000);
+
+    setTimeout(() => ctx.close(), durationMs + 100);
+  }
+
+  // ── Native path ─────────────────────────────────────────────────────────────
 
   private async startNative(): Promise<{ success: boolean; error?: string }> {
     if (!recorderBridge.startRecording) {
       return {
         success: false,
         error:
-          "useAudioEngineSetup() hook is not mounted. " +
-          "Add <AudioEngineProvider /> to your root layout.",
+          "useAudioEngineSetup() is not mounted. " +
+          "Call it inside your root layout component.",
       };
     }
 
     try {
-      // Request permissions before starting
-      const { granted } = await requestPermissionsAsync();
-      if (!granted) {
-        return { success: false, error: "Microphone permission denied." };
-      }
-
+      // FIX #1: Assign a typed literal, not a plain number, so TypeScript
+      // accepts it as SampleRate when passed into RecordingConfig.
+      this.sampleRate = this.config.proAccuracy ? 48000 : 44100;
       this.ring.reset();
       this.smoothing.reset();
       this.isRunning = true;
 
+      // FIX #2 & #4: onAudioStream must be async (returning Promise<void>)
+      // per the official @siteed/audio-studio RecordingConfig type.
+      // FIX #4: startRecording returns Promise<StartRecordingResult>; we
+      // await it and discard the result — no void mismatch anymore.
       await recorderBridge.startRecording({
-        sampleRate: this.config.proAccuracy ? 48000 : DEFAULT_SAMPLE_RATE,
+        sampleRate: this.sampleRate,
         channels: 1,
-        encoding: "pcm_32bit", // Float32 — no conversion needed after decode
-        interval: 50, // 50ms chunks → ~20 callbacks/sec
-        onAudioStream: (audio: AudioStreamEvent) => {
-          this.handleAudioStreamEvent(audio);
+        encoding: "pcm_32bit",
+        interval: 50,
+        keepAwake: true,
+        // FIX #2: arrow function is now async → returns Promise<void> ✓
+        onAudioStream: async (event: AudioDataEvent) => {
+          this.handleAudioDataEvent(event);
         },
       });
 
@@ -229,18 +277,29 @@ class AudioEngineCore {
     }
   }
 
-  // ── PCM chunk handler ───────────────────────────────────────────────────────
-
-  /**
-   * Called by useAudioRecorder's onAudioStream on every ~50ms chunk.
-   * audio.data is always base64-encoded raw PCM bytes.
-   */
-  handleAudioStreamEvent(audio: AudioStreamEvent): void {
+  private handleAudioDataEvent(event: AudioDataEvent): void {
     if (!this.isRunning) return;
 
-    const float32 = decodeBase64PCM(audio.data);
+    // FIX #3: AudioDataEvent.data is typed as string | Float32Array | Int16Array.
+    // decodeBase64PCM only accepts string, so narrow the type first.
+    // On native with pcm_32bit encoding the data is always a base64 string,
+    // but TypeScript doesn't know that without the guard.
+    if (typeof event.data !== "string") {
+      // Data already arrived as a typed array — use it directly.
+      const float32 =
+        event.data instanceof Float32Array
+          ? event.data
+          : Float32Array.from(event.data);
+      this._processFloat32(float32);
+      return;
+    }
 
-    // Apply sensitivity gain in-place
+    const float32 = decodeBase64PCM(event.data);
+    this._processFloat32(float32);
+  }
+
+  /** Shared post-decode processing extracted to avoid duplication. */
+  private _processFloat32(float32: Float32Array): void {
     const gain = getSensitivityGain(this.config.sensitivity);
     if (gain !== 1.0) {
       for (let i = 0; i < float32.length; i++) {
@@ -250,21 +309,17 @@ class AudioEngineCore {
 
     this.ring.write(float32);
 
-    // Only analyse when we have a full window
     const analysisSize = this.config.proAccuracy
       ? BUFFER_SIZE * 2
       : BUFFER_SIZE;
 
     const window = this.ring.read(analysisSize);
-    if (!window) return;
+    if (window === null) return;
 
-    this.runPitchDetection(
-      window,
-      this.config.proAccuracy ? 48000 : DEFAULT_SAMPLE_RATE,
-    );
+    this.runPitchDetection(window, this.sampleRate);
   }
 
-  // ── Pitch detection ─────────────────────────────────────────────────────────
+  // ── Shared pitch detection ──────────────────────────────────────────────────
 
   private runPitchDetection(buffer: Float32Array, sampleRate: number): void {
     let rms = 0;
@@ -356,72 +411,19 @@ class AudioEngineCore {
     this.animationId = requestAnimationFrame(this.webTick);
   };
 
-  // ── Stop ────────────────────────────────────────────────────────────────────
-
-  async stop(): Promise<void> {
-    this.isRunning = false;
-    this.smoothing.reset();
-    this.ring.reset();
-
-    if (Platform.OS !== "web") {
-      try {
-        await recorderBridge.stopRecording?.();
-      } catch {
-        // Already stopped
-      }
-    } else {
-      if (this.animationId !== null) {
-        cancelAnimationFrame(this.animationId);
-        this.animationId = null;
-      }
-      this.microphone?.disconnect();
-      this.microphone = null;
-      this.analyser?.disconnect();
-      this.analyser = null;
-      await this.audioContext?.close();
-      this.audioContext = null;
-      this.stream?.getTracks().forEach((t) => t.stop());
-      this.stream = null;
+  private stopWeb(): void {
+    if (this.animationId !== null) {
+      cancelAnimationFrame(this.animationId);
+      this.animationId = null;
     }
-
-    this.callback?.({ frequency: null, clarity: 0, isActive: false });
-  }
-
-  // ── Reference tone (web only) ───────────────────────────────────────────────
-
-  playReferenceTone(frequency: number, durationMs = 800): void {
-    if (Platform.OS !== "web") {
-      console.warn(
-        "[AudioEngine] playReferenceTone is web-only. " +
-          "Native reference tone not yet implemented.",
-      );
-      return;
-    }
-
-    const AudioContextClass =
-      ((globalThis as Record<string, unknown>)
-        .AudioContext as typeof AudioContext) ||
-      ((globalThis as Record<string, unknown>)
-        .webkitAudioContext as typeof AudioContext);
-
-    const ctx = new AudioContextClass();
-    const osc = ctx.createOscillator();
-    const gain = ctx.createGain();
-
-    osc.type = "sine";
-    osc.frequency.setValueAtTime(frequency, ctx.currentTime);
-    gain.gain.setValueAtTime(0.4, ctx.currentTime);
-    gain.gain.exponentialRampToValueAtTime(
-      0.001,
-      ctx.currentTime + durationMs / 1000,
-    );
-
-    osc.connect(gain);
-    gain.connect(ctx.destination);
-    osc.start(ctx.currentTime);
-    osc.stop(ctx.currentTime + durationMs / 1000);
-
-    setTimeout(() => ctx.close(), durationMs + 100);
+    this.microphone?.disconnect();
+    this.microphone = null;
+    this.analyser?.disconnect();
+    this.analyser = null;
+    this.audioContext?.close();
+    this.audioContext = null;
+    this.stream?.getTracks().forEach((t) => t.stop());
+    this.stream = null;
   }
 }
 
@@ -429,24 +431,22 @@ class AudioEngineCore {
 
 export const audioEngine = new AudioEngineCore();
 
-// ─── Hook: must be mounted once at app root ───────────────────────────────────
+// ─── Root hook ────────────────────────────────────────────────────────────────
 
 /**
- * Wires useAudioRecorder (a React hook) into the audioEngine singleton.
+ * Wires useAudioRecorder into the audioEngine singleton.
+ * Call ONCE in your root layout — never conditionally.
  *
- * Mount this ONCE in your root layout:
- *
- *   // app/_layout.tsx
- *   export default function RootLayout() {
- *     useAudioEngineSetup();
- *     return <Stack />;
- *   }
+ * @example
+ * // app/_layout.tsx
+ * export default function RootLayout() {
+ *   useAudioEngineSetup();
+ *   return <Stack />;
+ * }
  */
 export function useAudioEngineSetup(): void {
-  // useAudioRecorder must be called unconditionally at the top level
   const { startRecording, stopRecording } = useAudioRecorder();
 
-  // Keep bridge refs stable — avoid stale closures
   const startRef = useRef(startRecording);
   const stopRef = useRef(stopRecording);
 
@@ -459,8 +459,9 @@ export function useAudioEngineSetup(): void {
   }, [stopRecording]);
 
   useEffect(() => {
-    // Inject into bridge so AudioEngineCore can call them
-    recorderBridge.startRecording = (opts) => startRef.current(opts as never);
+    // FIX #4: The bridge now correctly types startRecording as returning
+    // Promise<StartRecordingResult>, matching the real hook's signature.
+    recorderBridge.startRecording = (config) => startRef.current(config);
     recorderBridge.stopRecording = () => stopRef.current();
 
     return () => {

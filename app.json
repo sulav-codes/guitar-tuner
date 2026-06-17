@@ -2,6 +2,7 @@
   "expo": {
     "name": "Guitar Tuner Pro",
     "slug": "guitar-tuner-pro",
+    "scheme": "guitar-tuner-pro",
     "version": "1.0.1",
     "orientation": "portrait",
     "icon": "./assets/icon.png",
@@ -9,7 +10,10 @@
     "ios": {
       "supportsTablet": true,
       "buildNumber": "1",
-      "bundleIdentifier": "com.miaoda.appcdi74yoy2sqp"
+      "bundleIdentifier": "com.guitar.tuner.pro",
+      "infoPlist": {
+        "ITSAppUsesNonExemptEncryption": false
+      }
     },
     "android": {
       "adaptiveIcon": {
@@ -18,7 +22,7 @@
       },
       "predictiveBackGestureEnabled": false,
       "versionCode": 1,
-      "package": "com.miaoda.appcdi74yoy2sqp",
+      "package": "com.guitar.tuner.pro",
       "permissions": [
         "android.permission.RECORD_AUDIO",
         "android.permission.MODIFY_AUDIO_SETTINGS",
@@ -36,27 +40,28 @@
       "expo-sqlite",
       "expo-font",
       "expo-system-ui",
-      "@siteed/audio-studio",
-      {
-        "enablePhoneStateHandling": true,
-        "enableNotifications": true,
-        "enableBackgroundAudio": true,
-        "enableDeviceDetection": true,
-        "iosBackgroundModes": {
-          "useVoIP": false,
-          "useAudio": false,
-          "useProcessing": false,
-          "useLocation": false,
-          "useExternalAccessory": false
-        },
-        "iosConfig": {
-          "allowBackgroundAudioControls": false,
-          "backgroundProcessingTitle": "Guitar Tuner Pro",
-          "microphoneUsageDescription": "Allow Guitar Tuner Pro to access your microphone.",
-          "notificationUsageDescription": "Allow Guitar Tuner Pro to send you notifications."
+      [
+        "@siteed/audio-studio",
+        {
+          "enablePhoneStateHandling": true,
+          "enableNotifications": true,
+          "enableBackgroundAudio": true,
+          "enableDeviceDetection": true,
+          "iosBackgroundModes": {
+            "useVoIP": false,
+            "useAudio": false,
+            "useProcessing": false,
+            "useLocation": false,
+            "useExternalAccessory": false
+          },
+          "iosConfig": {
+            "allowBackgroundAudioControls": false,
+            "backgroundProcessingTitle": "Guitar Tuner Pro",
+            "microphoneUsageDescription": "Allow Guitar Tuner Pro to access your microphone.",
+            "notificationUsageDescription": "Allow Guitar Tuner Pro to send you notifications."
+          }
         }
-      },
-      "@react-native-async-storage/expo-with-async-storage",
+      ],
       "@react-native-async-storage/expo-with-async-storage"
     ],
     "experiments": {
