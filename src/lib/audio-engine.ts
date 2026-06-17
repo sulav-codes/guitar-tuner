@@ -11,7 +11,6 @@ import { useAudioRecorder } from "@siteed/audio-studio";
 import type {
   AudioDataEvent,
   RecordingConfig,
-  // FIX #4: Import StartRecordingResult so the bridge return type is correct
   StartRecordingResult,
 } from "@siteed/audio-studio";
 import { toByteArray } from "base64-js";
@@ -22,7 +21,7 @@ import {
 } from "./pitch-detection";
 import type { PitchAlgorithm } from "./pitch-detection";
 
-// ─── Public types ─────────────────────────────────────────────────────────────
+// Public types
 
 export interface AudioEngineConfig {
   algorithm: PitchAlgorithm;
@@ -39,12 +38,12 @@ export interface PitchResult {
 
 type PitchCallback = (result: PitchResult) => void;
 
-// ─── Constants ────────────────────────────────────────────────────────────────
+// Constants
 
 const BUFFER_SIZE = 2048;
 const DEFAULT_SAMPLE_RATE = 44100;
 
-// ─── Helpers ──────────────────────────────────────────────────────────────────
+// Helpers
 
 function getSensitivityThreshold(
   sensitivity: AudioEngineConfig["sensitivity"],
@@ -60,15 +59,7 @@ function getSensitivityGain(
   return sensitivity === "low" ? 0.5 : sensitivity === "high" ? 2.0 : 1.0;
 }
 
-/**
- * Decode base64 PCM from AudioDataEvent into Float32Array.
- *
- * atob() is undefined in React Native / Hermes — use base64-js instead.
- * pcm_32bit = 4 bytes per sample = 32-bit signed integer, range [-1.0, 1.0].
- * We must NOT treat the bytes as Float32Array — that reinterprets integer
- * bit patterns as IEEE-754 floats, yielding garbage near zero.
- * Instead read as Int32Array then normalize by 2^31.
- */
+//Decode base64 PCM from AudioDataEvent into Float32Array.
 function decodeBase64PCM(base64: string): Float32Array {
   const bytes = toByteArray(base64);
   const int32s = new Int32Array(
@@ -84,8 +75,7 @@ function decodeBase64PCM(base64: string): Float32Array {
   return float32;
 }
 
-// ─── Ring buffer ──────────────────────────────────────────────────────────────
-
+// Ring buffer
 class RingBuffer {
   private buffer: Float32Array;
   private writePos = 0;
@@ -124,12 +114,9 @@ class RingBuffer {
   }
 }
 
-// ─── Recorder bridge ──────────────────────────────────────────────────────────
+// Recorder bridge
 
 interface RecorderBridge {
-  // FIX #4: startRecording must return Promise<StartRecordingResult> to match
-  // the real useAudioRecorder hook signature from @siteed/audio-studio.
-  // The bridge wraps it, so callers inside the engine can ignore the result.
   startRecording:
     | ((config: RecordingConfig) => Promise<StartRecordingResult>)
     | null;
@@ -141,7 +128,7 @@ const recorderBridge: RecorderBridge = {
   stopRecording: null,
 };
 
-// ─── Core engine (singleton) ──────────────────────────────────────────────────
+// Core engine (singleton)
 
 class AudioEngineCore {
   private smoothing = new FrequencySmoothing("medium");
@@ -149,9 +136,7 @@ class AudioEngineCore {
   private isRunning = false;
   private ring = new RingBuffer(BUFFER_SIZE * 8);
 
-  // FIX #1: Keep sampleRate typed as the allowed literal union so it is
-  // assignable to RecordingConfig.sampleRate (typed as SampleRate, not number).
-  // 16000 | 44100 | 48000 are the values documented as valid SampleRate values.
+  // Keep track of the sample rate so we can pass it to the pitch detection functions.
   private sampleRate: 16000 | 44100 | 48000 = DEFAULT_SAMPLE_RATE;
 
   private config: AudioEngineConfig = {
@@ -169,7 +154,7 @@ class AudioEngineCore {
   private animationId: number | null = null;
   private webBuffer: Float32Array = new Float32Array(BUFFER_SIZE);
 
-  // ── Public API ──────────────────────────────────────────────────────────────
+  // Public API
 
   isSupported(): boolean {
     if (Platform.OS === "web") {
@@ -240,7 +225,7 @@ class AudioEngineCore {
     setTimeout(() => ctx.close(), durationMs + 100);
   }
 
-  // ── Native path ─────────────────────────────────────────────────────────────
+  // Native path
 
   private async startNative(): Promise<{ success: boolean; error?: string }> {
     if (!recorderBridge.startRecording) {
@@ -253,24 +238,17 @@ class AudioEngineCore {
     }
 
     try {
-      // FIX #1: Assign a typed literal, not a plain number, so TypeScript
-      // accepts it as SampleRate when passed into RecordingConfig.
       this.sampleRate = this.config.proAccuracy ? 48000 : 44100;
       this.ring.reset();
       this.smoothing.reset();
       this.isRunning = true;
 
-      // FIX #2 & #4: onAudioStream must be async (returning Promise<void>)
-      // per the official @siteed/audio-studio RecordingConfig type.
-      // FIX #4: startRecording returns Promise<StartRecordingResult>; we
-      // await it and discard the result — no void mismatch anymore.
       await recorderBridge.startRecording({
         sampleRate: this.sampleRate,
         channels: 1,
         encoding: "pcm_32bit",
         interval: 50,
         keepAwake: true,
-        // FIX #2: arrow function is now async → returns Promise<void> ✓
         onAudioStream: async (event: AudioDataEvent) => {
           this.handleAudioDataEvent(event);
         },
@@ -289,16 +267,18 @@ class AudioEngineCore {
   private handleAudioDataEvent(event: AudioDataEvent): void {
     if (!this.isRunning) return;
 
-    // FIX #3: AudioDataEvent.data is typed as string | Float32Array | Int16Array.
-    // decodeBase64PCM only accepts string, so narrow the type first.
-    // On native with pcm_32bit encoding the data is always a base64 string,
-    // but TypeScript doesn't know that without the guard.
+    // Handle both Float32Array and base64 PCM from @siteed/audio-studio.
     if (typeof event.data !== "string") {
-      // Data already arrived as a typed array — use it directly.
-      const float32 =
-        event.data instanceof Float32Array
-          ? event.data
-          : Float32Array.from(event.data);
+      let float32: Float32Array;
+      if (event.data instanceof Float32Array) {
+        float32 = event.data;
+      } else {
+        // Int16Array: normalize from [-32768, 32767] to [-1.0, 1.0]
+        float32 = new Float32Array(event.data.length);
+        for (let i = 0; i < event.data.length; i++) {
+          float32[i] = event.data[i] / 32768;
+        }
+      }
       this._processFloat32(float32);
       return;
     }
@@ -307,7 +287,7 @@ class AudioEngineCore {
     this._processFloat32(float32);
   }
 
-  /** Shared post-decode processing extracted to avoid duplication. */
+  // Shared post-decode processing extracted to avoid duplication
   private _processFloat32(float32: Float32Array): void {
     const gain = getSensitivityGain(this.config.sensitivity);
     if (gain !== 1.0) {
@@ -328,7 +308,7 @@ class AudioEngineCore {
     this.runPitchDetection(window, this.sampleRate);
   }
 
-  // ── Shared pitch detection ──────────────────────────────────────────────────
+  // Shared pitch detectio
 
   private runPitchDetection(buffer: Float32Array, sampleRate: number): void {
     let rms = 0;
@@ -436,23 +416,11 @@ class AudioEngineCore {
   }
 }
 
-// ─── Exported singleton ───────────────────────────────────────────────────────
+// Exported singleton
 
 export const audioEngine = new AudioEngineCore();
 
-// ─── Root hook ────────────────────────────────────────────────────────────────
-
-/**
- * Wires useAudioRecorder into the audioEngine singleton.
- * Call ONCE in your root layout — never conditionally.
- *
- * @example
- * // app/_layout.tsx
- * export default function RootLayout() {
- *   useAudioEngineSetup();
- *   return <Stack />;
- * }
- */
+//React hook to set up the recorder bridge
 export function useAudioEngineSetup(): void {
   const { startRecording, stopRecording } = useAudioRecorder();
 
@@ -468,8 +436,7 @@ export function useAudioEngineSetup(): void {
   }, [stopRecording]);
 
   useEffect(() => {
-    // FIX #4: The bridge now correctly types startRecording as returning
-    // Promise<StartRecordingResult>, matching the real hook's signature.
+    // Set up the recorder bridge so the audio engine can call start/stop recording.
     recorderBridge.startRecording = (config) => startRef.current(config);
     recorderBridge.stopRecording = () => stopRef.current();
 
