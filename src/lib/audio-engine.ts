@@ -64,15 +64,24 @@ function getSensitivityGain(
  * Decode base64 PCM from AudioDataEvent into Float32Array.
  *
  * atob() is undefined in React Native / Hermes — use base64-js instead.
- * pcm_32bit = 4 bytes per sample = IEEE 754 float32, range [-1.0, 1.0].
+ * pcm_32bit = 4 bytes per sample = 32-bit signed integer, range [-1.0, 1.0].
+ * We must NOT treat the bytes as Float32Array — that reinterprets integer
+ * bit patterns as IEEE-754 floats, yielding garbage near zero.
+ * Instead read as Int32Array then normalize by 2^31.
  */
 function decodeBase64PCM(base64: string): Float32Array {
   const bytes = toByteArray(base64);
-  return new Float32Array(
+  const int32s = new Int32Array(
     bytes.buffer,
     bytes.byteOffset,
-    bytes.byteLength / Float32Array.BYTES_PER_ELEMENT,
+    bytes.byteLength / Int32Array.BYTES_PER_ELEMENT,
   );
+  const float32 = new Float32Array(int32s.length);
+  for (let i = 0; i < int32s.length; i++) {
+    // Normalize 32-bit signed integer to [-1.0, 1.0]
+    float32[i] = int32s[i] / 2147483648;
+  }
+  return float32;
 }
 
 // ─── Ring buffer ──────────────────────────────────────────────────────────────

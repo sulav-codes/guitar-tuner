@@ -3,7 +3,7 @@
     "name": "Guitar Tuner Pro",
     "slug": "guitar-tuner-pro",
     "scheme": "guitar-tuner-pro",
-    "version": "1.0.1",
+    "version": "1.0.2",
     "orientation": "portrait",
     "icon": "./assets/icon.png",
     "userInterfaceStyle": "dark",
@@ -21,7 +21,6 @@
         "backgroundColor": "#121212"
       },
       "predictiveBackGestureEnabled": false,
-      "versionCode": 1,
       "package": "com.guitar.tuner.pro",
       "permissions": [
         "android.permission.RECORD_AUDIO",
@@ -43,6 +42,7 @@
       [
         "@siteed/audio-studio",
         {
+          "microphonePermission": "Allow Guitar Tuner Pro to access your microphone?",
           "enablePhoneStateHandling": true,
           "enableNotifications": true,
           "enableBackgroundAudio": true,

@@ -88,6 +88,9 @@ export default function TunerScreen() {
   const inTuneRef = useRef(false);
   const historyRecorded = useRef(false);
 
+  // ── Stale closure fix: keep the latest handlePitchResult in a ref ──────────
+  const handlePitchResultRef = useRef<(result: PitchResult) => void>(() => {});
+
   // Load initial tuning from settings
   useEffect(() => {
     const tunings = TUNINGS_BY_INSTRUMENT[settings.instrument];
@@ -195,6 +198,9 @@ export default function TunerScreen() {
     [currentTuning, manualStringIndex, settings],
   );
 
+  // Keep the ref in sync with the latest callback
+  handlePitchResultRef.current = handlePitchResult;
+
   const startListening = useCallback(async () => {
     setIsStarting(true);
     setError(null);
@@ -208,14 +214,17 @@ export default function TunerScreen() {
       return;
     }
 
-    const result = await audioEngine.start(handlePitchResult);
+    // Pass a stable wrapper that reads from the ref — avoids stale closures
+    const result = await audioEngine.start((pitchResult) =>
+      handlePitchResultRef.current(pitchResult),
+    );
     if (result.success) {
       setIsListening(true);
     } else {
       setError(result.error ?? "Failed to access microphone.");
     }
     setIsStarting(false);
-  }, [handlePitchResult]);
+  }, []); // No deps needed — the ref handles freshness
 
   const stopListening = useCallback(() => {
     audioEngine.stop();

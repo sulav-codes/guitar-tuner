@@ -20,8 +20,8 @@ export function detectPitchYIN(
   const yinBuffer = new Float32Array(bufferSize / 2);
 
   // Step 1: Difference function
-  let sum = 0;
   for (let tau = 0; tau < yinBuffer.length; tau++) {
+    let sum = 0;
     for (let i = 0; i < yinBuffer.length; i++) {
       const delta = buffer[i] - buffer[i + tau];
       sum += delta * delta;
